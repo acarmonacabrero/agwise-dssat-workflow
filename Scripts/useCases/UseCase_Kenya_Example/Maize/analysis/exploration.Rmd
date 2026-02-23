@@ -1,0 +1,101 @@
+---
+title: "Soil Data Exploration"
+output: html_document
+date: "2025-10-29"
+---
+
+## Project Description
+
+This notebook performs an initial exploration of soil datasets from ISRIC SoilGrids, ISDA Africa Soil Information Service, and field measurements collected in Nigeria. The main goal is to understand the distributions, identify missing values, and compare key soil properties across data sources. This exploration will support the preparation of soil inputs for crop modeling in APSIM and DSSAT, and help evaluate how the choice of soil data source affects model outputs.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+# Load required libraries
+library(tidyverse)
+library(sf)
+library(raster)
+library(terra)
+library(geodata)
+library(arrow)
+
+# Source project functions
+source("../R/SoilGrids_preparation.R")
+# source("../R/harmonize_data.R")
+```
+
+# Define study area
+```{r study area, include=TRUE}
+library(geodata)
+library(sf)
+library(tidyverse)
+
+# Load country boundary
+country_name <- "Nigeria"
+country_sf <- geodata::gadm(country = country_name, level = 1, path = ".") |> 
+    st_as_sf()
+
+# Load samples
+samples <- read_csv('/home/jovyan/rs-soil-comparison-africa/data/patricia_dry_matter/obs_soils_dry_matter.csv') |> 
+    dplyr::select(-`...1`) |>
+    st_as_sf(coords = c("geopoint.Longitude", "geopoint.Latitude"), crs = 4326)
+
+samples_in_country <- st_intersection(samples, country_sf)
+
+samples_in_country <- samples_in_country %>%
+  mutate(
+    data_available = if_any(c(N_perc, sand_perc, silt_perc, clay_perc), ~ !is.na(.x))
+  )
+
+
+# Compute simple centroids
+centroids <- st_centroid(country_sf)
+
+# Plot
+ggplot() +
+    geom_sf(data = country_sf, fill = "white", color = "black") +
+    geom_sf(data = samples_in_country, aes(color = data_available), size = 2) +
+    geom_sf_text(data = centroids, aes(label = NAME_1), size = 3) +
+    theme_minimal() +
+    labs(title = country_name, color = "Legend")
+
+
+```
+
+
+
+# Read and prepare SoilGrids data
+```{r see sample availability, include=TRUE}
+sample_data_path <- "/home/jovyan/rs-soil-comparison-africa/data/patricia_dry_matter/-Patricia.RData"
+
+
+```
+
+# Read and prepare SoilGrids data
+```{r prepare isric, include=TRUE}
+soil_property <- "nitrogen"
+soil_depth <- "0-5"
+force_intersect <- FALSE  # Set to TRUE to redo tile search
+sg <- SoilGrids_preparation(country_name = country_name,
+                            soil_property = soil_property,
+                            soil_depth = soil_depth,
+                            force_intersect = TRUE,
+                            tiles_path = "/home/jovyan/common_data/soilgrids/raw")
+
+sg_data <- sg$df
+country_raster <- sg$raster
+head(sg$df)
+```
+
+```{r plot country_raster}
+# Plot the selected soil parameter for the study area
+country_vect <- geodata::gadm(country = country_name, level = 0, path = ".")
+plot(country_raster,
+     main = paste("Soil", soil_property, soil_depth, "over", country_name),
+     colNA = "white")  # NA pixels in white
+plot(country_vect, border = "red", add = TRUE, lwd =0.5)
+```
+
+#
+

@@ -3,11 +3,20 @@
 .Rapp.history
 
 # Session Data files
-.RData
-.RDataTmp
+data_curation/
+KEN/
+result/
+transform/
+*.RData
+*.RDataTmp
+*.rds
+*.RDS
+*.log
+*.csv
 
 # User-specific files
 .Ruserdata
+*.ipynb
 
 # Example code in package build process
 *-Ex.R
