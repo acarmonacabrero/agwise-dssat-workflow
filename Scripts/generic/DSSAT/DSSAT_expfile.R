@@ -33,7 +33,6 @@ source(paste0(project_root, '/Scripts/generic/DSSAT/helpers_DSSAT_expfile.R'))
 #' @param AOI TRUE for AOI runs; FALSE for trial sites
 #' @param crop_code DSSAT crop code (e.g., "MZ")
 #' @param plantingWindow number of weeks from base planting date (used only when RS schedule not provided)
-#' @param number_years number of years to simulate (AOI only)
 #' @param varietyid DSSAT cultivar id (INGENO)
 #' @param zone admin level 1 name
 #' @param level2 admin level 2 name (optional)
@@ -51,6 +50,19 @@ create_filex <- function(i, path.to.temdata, filex_temp, path.to.extdata, coords
                          wsta_prefix = "WHTE", template_df = NULL, 
                          plant_dates = NULL) {
   
+  if(!is.null(NPK_ranges)) {
+    message("NPK ranges workflow not yet implemented but functions are ready: create_grid_factorial_design().")
+    stop()
+  }
+  
+  if (is.null(plant_dates) && !is.null(coords)) {
+    plant_dates <- coords$planting_dates[[i]]
+  }
+  
+  if (is.null(plant_dates)) {
+    stop(paste("plant_dates is NULL for i =", i))
+  }
+  
   # Working path (each point)
   working_path <- create_dssat_working_path(
     path.to.extdata = path.to.extdata, i = i, zone = zone, level2 = level2)
@@ -61,7 +73,7 @@ create_filex <- function(i, path.to.temdata, filex_temp, path.to.extdata, coords
   number_years <- get_number_years_from_WTH_file(
     working_path = working_path, i = i)
   
-  file_x <- DSSAT::read_filex(file.path(path.to.temdata, filex_temp))
+  file_x <- DSSAT::read_filex(paste0(path.to.temdata, filex_temp))
   
   # Copy genetic files (from template dir into working path)
   gen_parameters <- list.files(path = path.to.temdata, pattern = geneticfiles, full.names = TRUE)
@@ -91,7 +103,8 @@ create_filex <- function(i, path.to.temdata, filex_temp, path.to.extdata, coords
   hd_df <- get_filex_harvestdetails(file_x, plant_dates)
   file_x$`HARVEST DETAILS` <- hd_df
   
-  fert_list <- create_fertilizer_flags(NPK_ranges = if (exists("NPK_ranges")) NPK_ranges else NULL, template_df)
+  fert_list <- create_fertilizer_flags(
+    NPK_ranges = if (exists("NPK_ranges")) NPK_ranges else NULL, template_df)
   
   sc_df <- get_filex_simulationcontrols(file_x, plant_dates, number_years, fert_list)
   file_x$`SIMULATION CONTROLS` <- sc_df
@@ -100,10 +113,10 @@ create_filex <- function(i, path.to.temdata, filex_temp, path.to.extdata, coords
     file_x, plant_dates, template_df, 
     NPK_ranges = if (exists("NPK_ranges")) NPK_ranges else NULL, 
     longitude = coords$longitude[i],
-    latitude = coords$latitude[i], varietyid)
+    latitude = coords$latitude[i], varietyid, fert_list)
   file_x$`FERTILIZERS (INORGANIC)` <- fi_df
   
-  treatments_df <- get_filex_treatments(file_x)
+  treatments_df <- get_filex_treatments(file_x, fert_list)
   file_x$`TREATMENTS                        -------------FACTOR LEVELS------------` <- treatments_df
   
   DSSAT::write_filex(
@@ -160,8 +173,6 @@ dssat.expfile <- function(country, useCaseName, Crop, project_root, AOI = TRUE,
     ground <- countryCoord
   }
   
-  number_years <- NULL
-  
   # Get path to EXT data and create if missing
   path.to.extdata <- create_extdata_path(
     project_root = project_root, country = country, useCaseName = useCaseName,
@@ -175,18 +186,12 @@ dssat.expfile <- function(country, useCaseName, Crop, project_root, AOI = TRUE,
   # Get DSSAT crop code
   crop_code <- get_DSSAT_crop_code(Crop)
   
-  # ---- parallel over points ----
-  # setwd(path.to.extdata)
-  # log_file <- file.path(path.to.extdata,"progress_log_exp.txt")
-  # if (file.exists(log_file)) file.remove(log_file)
-  
   # Sequence of location indices
   indices <- seq_len(nrow(coords))
   n_indices <- length(indices)
   
   plan_multisession(per_worker_gb = 5)
-  # plan(sequential)
-
+  
   messages_list <- future_lapply(
     indices, 
     function(i) {
@@ -213,7 +218,7 @@ dssat.expfile <- function(country, useCaseName, Crop, project_root, AOI = TRUE,
       geneticfiles = geneticfiles,
       index_soilwat = index_soilwat,
       template_df = template_df,
-      plant_dates = coords$planting_dates[[i]]  # <<< RS-driven vector of Dates (4 per coordinate)
+      plant_dates = NULL  # <<< RS-driven vector of Dates (4 per coordinate)
     )
     
     end_msg <- paste(
@@ -225,7 +230,7 @@ dssat.expfile <- function(country, useCaseName, Crop, project_root, AOI = TRUE,
     
     future.packages = packages_required,
     future.seed = T
-  )  
+  )
 }
 
 

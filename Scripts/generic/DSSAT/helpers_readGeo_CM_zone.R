@@ -29,7 +29,7 @@ read_and_filter <- function(file, zone = NA, level2 = NA) {
 
 # Define pathIn and check for existence
 define_pathIn <- function(general_pathIn, level2, zone, pathIn_zone, Forecast, 
-                          create_path = F) {
+                          fc_year, fc_month, create_path = F) {
   if (pathIn_zone) {
     if (!is.na(level2) && !is.na(zone)) {
       pathIn <- file.path(general_pathIn, zone, level2)
@@ -554,27 +554,6 @@ getGridCoordinates <- function(
 }
 
 
-# TODO: Revisit this idea
-# Simple estimation of ISDA total P based on texture class
-# estimate_ISDA_total_P <- function(Soil) {
-#   f_avail_0_20 <- ifelse(
-#     Soil$`texture.class_0-20cm` %in% c("sandy", "sandy clay"), 0.07,
-#     ifelse(Soil$`texture.class_0-20cm` %in% c("clay", "clay loam"), 0.04, 0.05)
-#   )
-#   
-#   f_avail_20_50 <- ifelse(
-#     Soil$`texture.class_20-50cm` %in% c("sandy", "sandy clay"), 0.05,
-#     ifelse(Soil$`texture.class_20-50cm` %in% c("clay", "clay loam"), 0.03, 0.04)
-#   )
-#   
-#   # Estimate total P
-#   Soil$totalP_0_20cm <- Soil$`p_0-20cm` / f_avail_0_20
-#   Soil$totalP_20_50cm <- Soil$`p_20-50cm` / f_avail_20_50
-#   
-#   return(Soil)
-# }
-
-
 # Format Depth ("0-20cm", "20-50cm")
 depths_to_numeric <- function(Depth) {
   if (is.numeric(Depth)) {
@@ -588,8 +567,10 @@ depths_to_numeric <- function(Depth) {
 
 
 # Check for ISDA Soil data. If any zone missing, run script to produce it
-check_and_get_ISDA_RDS <- function(country, useCaseName, Crop, project_root,
-                                   Soil_source = "ISRIC", inputData = NULL) {
+check_and_get_ISDA_RDS <- function(
+    country, useCaseName, Crop, project_root, Soil_source = "ISRIC",
+    inputData = NULL, datasourcing_path = "~/agwise-datasourcing/dataops/datasourcing"
+                                   ) {
   if (Soil_source == "ISRIC") {
     message("Skipping producing ISDA files.")
     return(invisible(NULL))
@@ -609,7 +590,7 @@ check_and_get_ISDA_RDS <- function(country, useCaseName, Crop, project_root,
     
     # Build general path
     general_pathIn <- paste0(
-      "~/agwise-datasourcing/dataops/datasourcing/Data/useCase_", country, "_",
+      datasourcing_path, "/Data/useCase_", country, "_",
       useCaseName, "/", Crop, "/result/geo_4cropModel"
     )
     
@@ -635,6 +616,7 @@ check_and_get_ISDA_RDS <- function(country, useCaseName, Crop, project_root,
     message("All ISDA RDS files exist.")
   }
 }
+
 
 # Simple conversion from Mehlich3 P to Olsen P
 mehlich3_to_olsen <- function(mehlich3_P){
@@ -670,15 +652,17 @@ convert_ISDA_units <- function(df) {
 }
 
 
-# Produce ISDA RDS objects from server data
+### Produce ISDA RDS objects from server data
 get_ISDA_soilRDS <- function(
-    country, useCaseName, Crop, project_root, inputData = NULL) {
+    country, useCaseName, Crop, project_root, inputData = NULL, 
+    datasourcing_path = "/home/jovyan/agwise-datasourcing/dataops/datasourcing")
+  {
   
-  baseSoilPath <- "/home/jovyan/agwise-datasourcing/dataops/datasourcing/Data/Global_GeoData/Landing/Soil/"
+  baseSoilPath <- paste0(datasourcing_path, "/Data/Global_GeoData/Landing/Soil/")
   shapefileHC <- st_read(paste0(baseSoilPath, "HC27/HC27 CLASSES.shp"), quiet = T) %>%
     st_make_valid()
   
-  baseSoilPath <- "/home/jovyan/agwise-datasourcing/dataops/datasourcing/Data/Global_GeoData/Landing/Soil/iSDA"
+  baseSoilPath <- paste0(datasourcing_path, "/Data/Global_GeoData/Landing/Soil/iSDA")
   listRaster_soil <- list.files(path = baseSoilPath, pattern = ".tif$")
   Layers_soil <- terra::rast(paste(baseSoilPath, listRaster_soil, sep = "/"))
   
@@ -796,8 +780,8 @@ get_ISDA_soilRDS <- function(
   pointDataSoil <- unique(merge(pointDataSoil, LDR_data, by = c("lon", "lat")))
   
   for (prov in unique(inputData$NAME_1)) {
-    general_pathIn <- paste0(
-      "~/agwise-datasourcing/dataops/datasourcing/Data/useCase_", country, "_",
+    general_pathIn <- paste0(datasourcing_path,
+      "/Data/useCase_", country, "_",
       useCaseName, "/", Crop, "/result/geo_4cropModel")
     pathIn <- define_pathIn(general_pathIn, level2 = NA, zone = prov,
                             pathIn_zone = T, Forecast = F, create_path = T)
@@ -810,9 +794,49 @@ get_ISDA_soilRDS <- function(
 
 ### Download and bias-correct forecast data
 get_bc_forecast_data <- function(
-    project_root, country_code, init_month_user, season_length_months,
-    forecast_year
+    project_root, country, useCaseName, Crop, zone, country_code,
+    init_month_user, season_length_months, forecast_year
     ) {
+  
+  # Build base directory dynamically
+  base_fc_path <- paste0(
+    project_root, "/Data/useCase_", country, "_", useCaseName, "/", Crop,
+    "/transform/FC/", zone
+  )
+  
+  # Build expected file names
+  file_srad <- paste0(
+    base_fc_path, "/FC_", init_month_user, "-", forecast_year,
+    "_solarRadiation_Season_1_PointData_AOI.RDS"
+  )
+  
+  file_tmin <- paste0(
+    base_fc_path, "/FC_", init_month_user, "-", forecast_year,
+    "_temperatureMin_Season_1_PointData_AOI.RDS"
+  )
+  
+  file_tmax <- paste0(
+    base_fc_path, "/FC_", init_month_user, "-", forecast_year,
+    "_temperatureMax_Season_1_PointData_AOI.RDS"
+  )
+  
+  file_rain <- paste0(
+    base_fc_path, "/FC_", init_month_user, "-", forecast_year,
+    "_Rainfall_Season_1_PointData_AOI.RDS"
+  )
+  
+  required_files <- c(file_srad, file_tmin, file_tmax, file_rain)
+  
+  # Check if all files exist
+  if (all(file.exists(required_files))) {
+    message("Bias-corrected forecast files already exist.")
+    message("Existing files will be used:")
+    message(paste(required_files, collapse = "\n"))
+    return(invisible(NULL))
+  }
+  
+  # init_day_user <- get_last_day_of_month(init_month_user - 1, forecast_year)
+  
   old_wd <- getwd()
   main_script_dir <- paste0(project_root, "/Scripts/generic/ClimateForecast_BC")
   setwd(main_script_dir)
@@ -821,10 +845,11 @@ get_bc_forecast_data <- function(
   run_agwise_seasonal_forecast_BC(
     country_code = country_code,
     init_month_user = init_month_user,
-    season_length_months = season_length_months,
+    season_length_months = season_length_months - 1,
     forecast_year = forecast_year,
-    use_manual_extent = F,
-    extent_manual = c(16, 34, 8, 40),
+    # init_day_user = init_day_user,
+    use_manual_extent = use_manual_extent,
+    extent_manual = extent_manual,
     manual_domain_name = "User_Domain",
     base_dir = paste0(project_root, "/Data"),
     py_path = "/home/jovyan/.conda-envs/agwise_fcst/bin/python",
@@ -836,5 +861,242 @@ get_bc_forecast_data <- function(
       "SRAD" # Radiation-driven crop growth processes
     )
   )
+  
   setwd(old_wd)
+}
+
+
+### Download prior month and merge prior month with FC data
+prior_month_download <- function(
+    project_root, country, useCaseName, Crop, zone, country_code,
+    init_month_user, season_length_months, forecast_year,
+    py_path = "/home/jovyan/.conda-envs/agwise_fcst/bin/python"
+    ) {
+  
+  prior_month <- init_month_user - 1
+  if(prior_month == 0) {
+    prior_month <- 12
+    forecast_year_prior <- forecast_year - 1
+  } else {
+    forecast_year_prior <- forecast_year
+  }
+  
+  prior_month_str <- sprintf("%02d", prior_month)
+  
+  prior_month_dir <- file.path(project_root, "Data", country_code, "Observation", "prior_month")
+  
+  required_files <- c(
+    paste0("Daily_PRCP_", forecast_year_prior, "_", prior_month_str, "_plus_first_fc_day.nc"),
+    paste0("Daily_TMAX_", forecast_year_prior, "_", prior_month_str, "_plus_first_fc_day.nc"),
+    paste0("Daily_SRAD_", forecast_year_prior, "_", prior_month_str, "_plus_first_fc_day.nc"),
+    paste0("Daily_TMIN_", forecast_year_prior, "_", prior_month_str, "_plus_first_fc_day.nc")
+  )
+  
+  # Check if all files exist
+  files_exist <- all(file.exists(file.path(prior_month_dir, required_files)))
+  
+  if(files_exist) {
+    message("All prior month files already exist. Skipping download.")
+    return(invisible(NULL))
+  }
+  
+  main_script_dir <- paste0(project_root, "/Scripts/generic/ClimateForecast_BC")
+  py_script <- file.path(main_script_dir, "download_prior_month.py")
+  
+  message("Downloading prior month data for country: ", country_code)
+  
+  py_cmd <- sprintf("%s %s --project_root %s --country %s --useCaseName %s --country_code %s", shQuote(py_path),
+                    shQuote(py_script), shQuote(project_root), shQuote(country),
+                    shQuote(useCaseName),
+                    shQuote(country_code))
+  
+  # Execute command
+  status <- system(py_cmd, intern = TRUE)
+  
+  message("Python prior month downloader output:")
+  print(status)
+    
+}
+
+
+### Updated function to handle NetCDF files, combine them, and open/save
+extract_all_nc_to_df <- function(
+    nc_folder, aoi_file, forecast_year, init_month_user, force_extract = F) {
+  
+  
+  # Construct the RDS file path
+  rds_file <- paste0(nc_folder, "prior_month_", forecast_year, "_", init_month_user, ".RDS")
+  
+  # Check if RDS file exists and force_extract is FALSE
+  if(file.exists(rds_file) && !force_extract) {
+    message("Reading pre-existing data from RDS file: ", rds_file)
+    combined_df <- readRDS(rds_file)
+    return(combined_df)
+  }
+  
+  message("Extracting data from NetCDF files...")
+  
+  # Load AOI coordinates
+  aoi <- readRDS(aoi_file)
+  if(!all(c("lat","lon") %in% names(aoi))) stop("AOI file must have 'lat' and 'lon' columns")
+  
+  # Find all NetCDF files in the folder
+  pattern <- paste0("_", forecast_year, "_", init_month_user, "\\.nc$")
+  nc_files <- list.files(nc_folder, pattern = "\\.nc$", full.names = TRUE)
+  if(length(nc_files) == 0) stop("No NetCDF files found in the folder")
+  
+  # Initialize combined dataframe with AOI coordinates
+  combined_df <- aoi
+  rownames(combined_df) <- paste0(aoi$lat, "_", aoi$lon)
+  
+  # Loop over each NetCDF file
+  for(nc_file in nc_files) {
+    nc <- nc_open(nc_file)
+    
+    # Assume only one variable per file
+    varname <- names(nc$var)[1]
+    
+    lats <- ncvar_get(nc, "lat")
+    lons <- ncvar_get(nc, "lon")
+    times <- ncvar_get(nc, "time")
+    
+    # Convert time to Date
+    time_units <- nc$var[[varname]]$dim[[3]]$units
+    origin <- as.Date(sub("days since ", "", time_units))
+    dates <- origin + times
+    
+    # Extract data for each AOI point
+    for(i in seq_len(nrow(aoi))) {
+      lat_idx <- which.min(abs(lats - aoi$lat[i]))
+      lon_idx <- which.min(abs(lons - aoi$lon[i]))
+      
+      vals <- ncvar_get(nc, varname)[lon_idx, lat_idx, ]
+      colnames_i <- paste0(varname, "_", format(dates, "%d_%m_%Y"))
+      
+      combined_df[i, colnames_i] <- vals
+    }
+    
+    nc_close(nc)
+  }
+  
+  saveRDS(combined_df, rds_file)
+  message("Data saved to RDS file: ", rds_file)
+  
+  return(combined_df)
+}
+
+
+### Rename prior month data frame
+rename_prior_month_columns <- function(prior_month_df) {
+  renamed_prior_month_df <- prior_month_df
+  
+  old_names <- colnames(renamed_prior_month_df)
+  
+  new_names <- sapply(old_names, function(nm) {
+    if(grepl("^PRCP_", nm)) {
+      date_part <- sub("PRCP_(\\d{2})_(\\d{2})_(\\d{4})", "\\3-\\2-\\1", nm)
+      paste0("Rainfall_", date_part)
+    } else if(grepl("^SRAD_", nm)) {
+      date_part <- sub("SRAD_(\\d{2})_(\\d{2})_(\\d{4})", "\\3-\\2-\\1", nm)
+      paste0("SolarRadiation_", date_part)
+    } else if(grepl("^TMAX_", nm)) {
+      date_part <- sub("TMAX_(\\d{2})_(\\d{2})_(\\d{4})", "\\3-\\2-\\1", nm)
+      paste0("TemperatureMax_", date_part)
+    } else if(grepl("^TMIN_", nm)) {
+      date_part <- sub("TMIN_(\\d{2})_(\\d{2})_(\\d{4})", "\\3-\\2-\\1", nm)
+      paste0("TemperatureMin_", date_part)
+    } else {
+      nm
+    }
+  })
+  
+  colnames(renamed_prior_month_df) <- new_names
+  return(renamed_prior_month_df)
+}
+
+
+# Add prior month columns to forecast data
+add_prior_month_columns <- function(fc_df, prior_month_df, variable_prefix) {
+  
+  # Identify prior_month columns for the variable
+  prior_month_cols <- grep(paste0("^", variable_prefix, "_"), colnames(prior_month_df), value = TRUE)
+  
+  # Identify the first column in fc_df that has the same prefix
+  sep_cols <- grep(paste0("^", variable_prefix, "_"), colnames(fc_df), value = TRUE)
+  
+  if(length(sep_cols) == 0 || length(prior_month_cols) == 0) {
+    warning("No matching columns found for prefix: ", variable_prefix)
+    return(NULL)
+  }
+  
+  # Position to insert in fc_df (before first weather column)
+  insert_pos <- which(colnames(fc_df) == sep_cols[1])
+  
+  # Combine: columns before, prior_month_cols, then rest
+  new_df <- cbind(
+    fc_df[, 1:(insert_pos-1), drop=FALSE],
+    prior_month_df[, prior_month_cols, drop=FALSE],
+    fc_df[, insert_pos:ncol(fc_df), drop=FALSE]
+  )
+  
+  return(new_df)
+}
+
+
+# Filter prior month data by province
+filter_prior_month_by_prov <- function(prior_month_df, metaData) {
+  prior_month_df <- prior_month_df %>%
+    filter(NAME_2 %in% metaData$NAME_2)
+  row.names(prior_month_df) <- NULL
+  return(prior_month_df)
+}
+
+
+# TODO: Remove this function once the Forecast data starts in the 1st day of the month
+fix_forecast_dataset <- function(df, var, fc_year, fc_month) {
+  # Construct first day and second day correct names
+  first_day_col <- paste0(var, "_", fc_year, "-", sprintf("%02d", fc_month), "-01")
+  second_day_col <- paste0(var, "_", fc_year, "-", sprintf("%02d", fc_month), "-02")
+  second_day_col_wrong <- paste0(var, "_", fc_year, "_", sprintf("%02d", fc_month), "_02")
+  
+  # Step 1: Check if first day exists
+  if (first_day_col %in% colnames(df)) {
+    message("Forecast data is complete. No changes made.")
+    return(df)
+  }
+  
+  # Step 2: Fix the second day column if misnamed
+  if (second_day_col_wrong %in% colnames(df)) {
+    colnames(df)[colnames(df) == second_day_col_wrong] <- second_day_col
+  }
+  
+  # Step 3: Create the missing first day by copying the first available day
+  day_cols_pattern <- paste0("^", var, "_", fc_year, "[-_]")
+  available_days <- grep(day_cols_pattern, colnames(df), value = TRUE)
+  first_available_day <- available_days[1]
+  df[[first_day_col]] <- df[[first_available_day]]
+  
+  # Step 4: Reorder: first day goes immediately before second day
+  day_cols <- grep(day_cols_pattern, colnames(df), value = TRUE)
+  other_cols <- setdiff(colnames(df), day_cols)
+  
+  # Ensure first day is first in day_cols
+  day_cols <- c(first_day_col, setdiff(day_cols, first_day_col))
+  
+  # Place first day before the second day
+  idx_second <- which(day_cols == second_day_col)
+  if (idx_second > 1) {
+    day_cols <- append(day_cols[-1], first_day_col, after = idx_second - 2)
+  }
+  
+  df <- df[, c(other_cols, day_cols)]
+  return(df)
+}
+
+
+# Obtain the last day of a month for any month/year
+get_last_day_of_month <- function(month, year) {
+  last_day <- seq(as.Date(sprintf("%04d-%02d-01", year, month)),
+                  by = "month", length.out = 2)[2] - 1
+  last_day
 }

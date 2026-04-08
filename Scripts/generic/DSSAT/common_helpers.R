@@ -10,11 +10,10 @@ load_or_install <- function(pkg) {
 ### Load required packages
 packages_required <- c(
   "tidyverse", "lubridate", "DSSAT", "furrr", "future", "future.apply",
-  "stringr", "geodata", "readr", "purrr", "terra"
+  "stringr", "geodata", "readr", "purrr", "terra", "countrycode"
 )
 
 invisible(lapply(packages_required, load_or_install))
-
 
 
 ### Common EXTpath
@@ -102,7 +101,7 @@ define_pathOUT <- function(path.to.extdata, i, zone = NA, level2 = NA) {
 ### Produce the AOI_GPS.RDS file
 getGridCoordinates <- function(
     country, useCaseName, Crop, resltn = 0.05, project_root, provinces = NULL, 
-    district = NULL) { 
+    district = NULL, force_reanalysis = F) { 
   
   pathOut <- paste0(project_root, "/Data/useCase_", country, "_", useCaseName,
                     "/", Crop, "/data_curation/", country, "/")
@@ -186,10 +185,12 @@ plan_multisession <- function(per_worker_gb) {
     if (!is.na(ram_limit_bytes) && ram_limit_bytes < 2 ^ 60) {
       available_ram_gb <- ram_limit_bytes / 1024 ^ 3
     } else {
-      available_ram_gb <- as.numeric(system("grep MemAvailable /proc/meminfo | awk '{print $2}'", intern=TRUE)) / 1024 / 1024
+      available_ram_gb <- as.numeric(system("grep MemAvailable /proc/meminfo | awk '{print $2}'",
+                                            intern = T)) / 1024 / 1024
     }
   } else {
-    available_ram_gb <- as.numeric(system("grep MemAvailable /proc/meminfo | awk '{print $2}'", intern=TRUE)) / 1024 / 1024
+    available_ram_gb <- as.numeric(system("grep MemAvailable /proc/meminfo | awk '{print $2}'",
+                                          intern = T)) / 1024 / 1024
   }
   
   # Compute safe number of workers

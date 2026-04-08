@@ -124,6 +124,6 @@ merge_DSSAT_output <- function(
   }else{
     saveRDS(all_results, file = paste0(dir_path, Soil_source, "_useCase_", country, "_", useCaseName, "_", Crop, "_fieldData_season_", season, ".RDS"))
   }
-  
+  return(all_results)
 }
 

@@ -1,8 +1,7 @@
-library(dplyr)
-library(ggplot2)
-library(rlang)
+packages_required <- c('dplyr', 'ggplot2', 'rlang')
+invisible(lapply(packages_required, load_or_install))
 
-source(paste0(project_root, "/Scripts/generic/DSSAT/helpers_soil_comparison_stats.R"))
+source(paste0(project_root, "/Scripts/generic/DSSAT/helpers_DSSAT_analyze_results.R"))
 
 run_full_soil_comparison <- function(
     project_root,
@@ -149,3 +148,15 @@ run_full_soil_comparison <- function(
     merged_data = merged
   ))
 }
+
+# TODO Add this function that calls all the helpers
+run_fertilizer_comparison <- function(
+    all_results, variable = HWAH, by_treatment = T, ...) {
+  summary_DSSAT_results(all_results, variable = variable, by_treatment = T)
+  plot_DSSAT_pixel(all_results, lat = lat_pixel, lon = lon_pixel, variable = variable)
+  plot_aggregate(all_results, variable = variable)
+  plot_map(
+    all_results, treatment = treatment_to_plot, year_selected = map_year,
+    variable = variable)
+}
+

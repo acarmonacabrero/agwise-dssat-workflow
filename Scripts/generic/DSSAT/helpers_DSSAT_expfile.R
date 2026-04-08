@@ -138,9 +138,9 @@ create_grid_factorial_design <- function(
   
   # Populate fertilizer levels
   fert_x <- dplyr::slice(file_x$`FERTILIZERS (INORGANIC)`, 0)
-  for (i in seq_along(plant_dates)){
+  for (i in seq_along(plant_dates)) {
     # Split application for Nitrogen
-    if (split_app %in% c("Yes", T)){
+    if (split_app %in% c("Yes", T)) {
       # Half N and all P and K applied at planting
       first_application_df <- fert_factorial_df %>%
         mutate(F = as.numeric(row.names(fert_factorial_df)) + 
@@ -389,10 +389,11 @@ get_DSSAT_crop_code <- function(Crop) {
 
 # Produce a dataframe with coords of available soil data and RS planting dates
 get_zone_coords_pdates <- function(
-    country, useCaseName, Crop, zone, Soil_source, rs_schedule_df) {
+    country, useCaseName, Crop, zone, Soil_source, rs_schedule_df,
+    datasourcing_path = "~/agwise-datasourcing/dataops/datasourcing") {
   
-  if (Soil_source == "ISDA") soil_path <- paste0("~/agwise-datasourcing/dataops/datasourcing/Data/useCase_", country, "_", useCaseName, "/", Crop, "/result/geo_4cropModel/", zone, "/ISDA_SoilDEM_PointData_AOI_profile.RDS")
-  if (Soil_source == "ISRIC") soil_path <- paste0("~/agwise-datasourcing/dataops/datasourcing/Data/useCase_", country, "_", useCaseName, "/", Crop, "/result/geo_4cropModel/", zone, "/SoilDEM_PointData_AOI_profile.RDS")
+  if (Soil_source == "ISDA") soil_path <- paste0(datasourcing_path, "/Data/useCase_", country, "_", useCaseName, "/", Crop, "/result/geo_4cropModel/", zone, "/ISDA_SoilDEM_PointData_AOI_profile.RDS")
+  if (Soil_source == "ISRIC") soil_path <- paste0(datasourcing_path, "/Data/useCase_", country, "_", useCaseName, "/", Crop, "/result/geo_4cropModel/", zone, "/SoilDEM_PointData_AOI_profile.RDS")
   Soil <- readRDS(soil_path)
   Soil <- na.omit(Soil) %>%
     rename(longitude = lon,
@@ -409,33 +410,45 @@ get_zone_coords_pdates <- function(
            latitude = round(latitude, 3))
   
   merged <- inner_join(new_coords, rs_schedule_df, 
-                       by = c("latitude", "longitude"))
+                       by = c("latitude", "longitude")) %>%
+    unique()
   
-  merged
+  row.names(merged) <- NULL
+  
+  return(merged)
 }
 
 
 # Get number years from WTH File
 get_number_years_from_WTH_file <- function(working_path, i) {
   wth_file <- DSSAT::read_wth(paste0(working_path, "/WHTE", formatC(width = 4, (as.integer(i)), flag = "0"), ".WTH"))
-  number_years <- year(max(wth_file$DATE)) - year(min(wth_file$DATE))
+  number_years <- max(year(max(wth_file$DATE)) - year(min(wth_file$DATE)), 1)
   number_years
 }
 
 
 # Create list of fertilizer flags for the Simulation Controls DSSAT information
 create_fertilizer_flags <- function(NPK_ranges = NULL, template_df = NULL) {
-  if (!exists("NPK_ranges") || is.null(NPK_ranges) || is.null(template_df$FAMN)) {
-    fert_list <- list(NITRO = "N", PHOSP = "N", POTAS = "N", FERTI = "R")
-  } else if (!is.null(NPK_ranges)) {
-    fert_list <- lapply(NPK_ranges, function(x) if(!is.null(x) && any(x != 0)) "Y" else "N")
-    fert_list$FERTI <- if(any(unlist(fert_list) == "Y")) "R" else "N"
-  } else if(!is.null(template_df$FAMN)) {
-    fert_list <- lapply(template_df %>% select(FAMN, FAMP, FAMK), 
-                        function(x) if(any(x > 0)) "Y" else "N")
-    fert_list$FERTI <- if(any(unlist(fert_list) == "Y")) "R" else "N"
+  # Default flags
+  fert_list <- list(NITRO = "N", PHOSP = "N", POTAS = "N", FERTI = "N")
+  
+  # From NPK_ranges
+  if (!is.null(NPK_ranges)) {
+    fert_list$NITRO <- if (!is.null(NPK_ranges$N) && any(NPK_ranges$N != 0)) "Y" else "N"
+    fert_list$PHOSP <- if (!is.null(NPK_ranges$P) && any(NPK_ranges$P != 0)) "Y" else "N"
+    fert_list$POTAS <- if (!is.null(NPK_ranges$K) && any(NPK_ranges$K != 0)) "Y" else "N"
+    
+  # From template_df
+  } else if (all(c("FAMN","FAMP","FAMK") %in% names(template_df))) {
+    fert_list$NITRO <- if (any(template_df$FAMN > 0, na.rm = TRUE)) "Y" else "N"
+    fert_list$PHOSP <- if (any(template_df$FAMP > 0, na.rm = TRUE)) "Y" else "N"
+    fert_list$POTAS <- if (any(template_df$FAMK > 0, na.rm = TRUE)) "Y" else "N"
   }
-  fert_list
+  
+  
+  fert_list$FERTI <- if (any(unlist(fert_list[1:3]) == "Y")) "R" else "N"
+  
+  return(fert_list)
 }
 
 
@@ -453,8 +466,21 @@ ordinal <- function(x) {
 get_filex_initial_conditions <- function(ex_profile, crop_code, plant_dates, file_x) {
   plant_dates <- sort(as.Date(plant_dates))
   n_pd <- length(plant_dates)
-  SLB <- ex_profile$SLB[[1]]
-  n_layers <- length(SLB)
+  
+  ### Ensure ex_profile is ordered by SLB
+  slb <- ex_profile$SLB[[1]]
+  ord <- order(slb)
+  
+  ex_profile_sorted <- ex_profile
+  
+  list_cols <- sapply(ex_profile, is.list)
+  
+  ex_profile_sorted[list_cols] <- lapply(
+    ex_profile[list_cols],
+    function(col) list(col[[1]][ord])
+  )
+  
+  n_layers <- length(slb)
   # TODO: So far, we have one IC for each PD
   n_ic <- n_pd
   
@@ -467,16 +493,16 @@ get_filex_initial_conditions <- function(ex_profile, crop_code, plant_dates, fil
   
   ic_df <- ic_df %>% 
     mutate(
-      PCR = crop_code,
-      ICBL = SLB,
+      PCR = crop_code
     )
+  ic_df$ICBL <- rep(list(sort(slb)), nrow(ic_df))
   ic_df$C <- 1:n_ic
   ic_df$ICDAT <- as.POSIXct(plant_dates %m-% months(1))
   ic_df$SNH4 <- rep(list(rep(fixed_SNH4, n_layers)), nrow(ic_df))
   ic_df$SNO3 <- rep(list(rep(fixed_SNO3, n_layers)), nrow(ic_df))
   ic_df$SH2O <- mapply(function(sdul, slll, index) {
     slll + ((sdul - slll) * index)
-  }, ex_profile$SDUL, ex_profile$SLLL, MoreArgs = list(index = index_soilwat),
+  }, ex_profile_sorted$SDUL, ex_profile_sorted$SLLL, MoreArgs = list(index = index_soilwat),
   SIMPLIFY = FALSE)
   
   ic_df
@@ -595,7 +621,8 @@ get_filex_simulationcontrols <- function(
 # Produce Fertilizers Inorganic df that is common for all DSSAT experiment design approaches
 # If no Fertilizers return NULL so there is no addition
 get_filex_fertilizersinorganic <- function(
-    file_x, plant_dates, template_df, NPK_ranges, longitude, latitude, varietyid) {
+    file_x, plant_dates, template_df, NPK_ranges, longitude, latitude, varietyid,
+    fert_list = NULL) {
   fi_df <- file_x$`FERTILIZERS (INORGANIC)`
   
   # TODO: template_df seems to be wrong for this approach. Need to revisit with Siya or modify this
@@ -604,9 +631,9 @@ get_filex_fertilizersinorganic <- function(
   if(!is.null(template_df$FAMN)) {
     fi_df <- template_df %>%
       filter(lon == longitude,
-             lat == latitude,
-             INGENO == varietyid)
-    n_split_applications <- dim(fi_df)[1]/max(fi_df$F)
+             lat == latitude)  # INGENO has been removed from template_df,
+             # INGENO == varietyid)
+    n_split_applications <- length(unique(fi_df$F.dap))
     
     # TODO: if plant_dates from template_df 
     # TODO: NEED TO REVISIT THIS!! FDATE WRONG? F WRONG?
@@ -618,15 +645,17 @@ get_filex_fertilizersinorganic <- function(
     # fi_df$FDATE <- as.POSIXct(fi_df$F.dap + rep(plant_dates, each = n0))
     fi_df$FDATE_date <- as.Date(fi_df$F.dap + rep(plant_dates, each = n0))
     fi_df$FDATE <- as.integer(
-      format(fi_df$FDATE_date, "%y") * 1000 +
+      format(fi_df$FDATE_date, "%y")) * 1000 +
         as.integer(format(fi_df$FDATE_date, "%j"))
-    )
+    
     fi_df <- fi_df %>% dplyr::select(-FDATE_date)
     
     fi_df$F <- rep(seq_len(dim(fi_df)[1]/n_split_applications), each = n_split_applications)
     
     fi_df <- fi_df %>% 
-      dplyr::select(F, FDATE, FMCD, FACD, FDEP, FAMN, FAMP, FAMK, FAMC, FAMO, FOCD, FERNAME)
+      dplyr::select(any_of(
+        c("F", "FDATE", "FMCD", "FACD", "FDEP", "FAMN", "FAMP", "FAMK", "FAMC",
+          "FAMO", "FOCD", "FERNAME")))
     return(fi_df)
     
   } else
@@ -680,22 +709,36 @@ get_filex_fertilizersinorganic <- function(
 
 
 # Produce Treatments df that is common for all DSSAT experiment design approaches
-get_filex_treatments <- function(file_x) {
+get_filex_treatments <- function(file_x, fert_list = NULL) {
   treatments_df <- file_x$`TREATMENTS                        -------------FACTOR LEVELS------------`
   fi_df <- file_x$`FERTILIZERS (INORGANIC)`
   sc_df <- file_x$`SIMULATION CONTROLS`
   pd_df <- file_x$`PLANTING DETAILS`
   ic_df <- file_x$`INITIAL CONDITIONS`
+  plant_dates <- pd_df$PDATE
+  number_years <- unique(sc_df$NYERS)
   
   if (!is.null(fi_df)) {
     # Fertilizer levels already consider planting dates levels
     n_t <- max(fi_df$F)
+    n_sc <- max(sc_df$N)
     treatments_df <- treatments_df[rep(1, n_t), ]
     
     treatments_df$N <- 1:n_t
-    treatments_df$MI <- 1:n_t
-    treatments_df$TNAME <- unique(gsub("\\b\\d+(st|nd|rd|th) app\\s*", "",
-                                       fi_df$FERNAME))
+    treatments_df$MF <- 1:n_t
+    n_pd <- max(pd_df$P)
+    fert_levels <- unique(gsub("\\s*\\d+(st|nd|rd|th) application", "", fi_df$FERNAME))
+    pd_levels <- paste0(1:n_pd, c("st","nd","rd","th")[1:n_pd], " pd")
+    
+    treat_names <- expand.grid(
+      fert = fert_levels,
+      pd   = pd_levels,
+      stringsAsFactors = FALSE
+    )
+    treat_names$TNAME <- paste(treat_names$fert, treat_names$pd)
+    
+    treatments_df$TNAME <- treat_names$TNAME
+
     # IC, MP, SM and MH are the same
     pd_index <- as.integer(sub(".*\\b(\\d+)(st|nd|rd|th) pd.*", "\\1",
                                treatments_df$TNAME))
@@ -731,3 +774,35 @@ get_filex_treatments <- function(file_x) {
     return(treatments_df)
   }
 }
+
+
+# Ensure layers are correctly ordered
+check_layers_order <- function(ex_profile) {
+  ex_profile <- ex_profile %>%
+    unnest(cols = everything()) %>%   # unnest all list-columns
+    arrange(SLB)
+  return(ex_profile)
+}
+
+
+# Get range of treatments
+get_n_treatments <- function(
+    template_df, Forecast, fertilizer, fert_factorial, fert_grid_RS) {
+  
+  if (fert_factorial) {
+    n_applications <- length(unique(template_df$F.dap))
+    
+    one_location_levels <- template_df %>%
+      filter(lon == template_df$lon[1],
+             lat == template_df$lat[1])
+    n_fert <- dim(one_location_levels)[1] / n_applications
+    # Columns that define the RS planting date
+    n_pd <- length(colnames(template_df)[grep("^q", colnames(template_df))]) + 1
+    TRT <- 1:(n_fert * n_pd)
+  } else {
+    message("get_n_treatments() not implemented for your type of experiment")
+  }
+  
+  return(TRT)
+}
+
