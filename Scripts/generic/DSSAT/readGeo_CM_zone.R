@@ -202,7 +202,8 @@ readGeo_CM_zone <- function(
     country, useCaseName, Crop, project_root, AOI = FALSE, season = 1, zone, 
     level2 = NA, varietyid, pathIn_zone = T, Depth = c(5, 15, 30, 60, 100, 200),
     Forecast = F, fc_month = NULL, fc_year = NULL, season_length_months = NULL,
-    datasourcing_path = "~/agwise-datasourcing/dataops/datasourcing")
+    datasourcing_path = "~/agwise-datasourcing/dataops/datasourcing",
+    use_manual_extent = NULL, extent_manual = NULL)
   {
 
   # General input path with all the weather data
@@ -216,11 +217,14 @@ readGeo_CM_zone <- function(
     general_pathIn <- paste0(
       project_root, '/Data/useCase_', country, "_", useCaseName, "/", Crop, 
       "/transform/FC")
+    
+    country_code <- countrycode::countrycode(country, origin = 'country.name', destination = 'iso3c')
   
     get_bc_forecast_data(
       project_root, country, useCaseName, Crop, zone, country_code, 
       init_month_user = fc_month, season_length_months = season_length_months,
-      forecast_year = fc_year)
+      forecast_year = fc_year, use_manual_extent = use_manual_extent,
+      extent_manual = extent_manual)
   }
   
   pathIn <- define_pathIn(general_pathIn, level2, zone, pathIn_zone, Forecast,
@@ -312,6 +316,7 @@ readGeo_CM_zone <- function(
       init_month_user = fc_month, season_length_months, forecast_year = fc_year,
       py_path = "/home/jovyan/.conda-envs/agwise_fcst/bin/python")
     
+    #TODO Add a new function for transforming prior_month_download data to rds/df
     prior_month_df <- extract_all_nc_to_df(
       nc_folder = file.path(project_root, "Data", country_code, "Observation/prior_month/"),
       aoi_file = paste0(

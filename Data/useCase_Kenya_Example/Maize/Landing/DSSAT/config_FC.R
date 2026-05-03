@@ -5,11 +5,12 @@
 country <- "Kenya"
 useCaseName <- "FC"
 Crop <- "Maize"
+varietyids <- c("999993")
 
 # 1.b. Paths
 filex_temp <- "KEAG8104.MZX"
 # Input file (.csv) for fertilizer, planting dates, varieties, ...
-temp_file <- "planting_date_rec_template.csv"
+temp_file <- "FC_planting_date_rec_template.csv"
 # temp_file <- "Fertilizer_recommendation_template_V2.csv"
 geneticfiles <- "MZCER048"
 
@@ -59,7 +60,7 @@ template_df <- read.csv(paste0(path.to.temdata, temp_file))
 provinces <- unique(template_df$NAME_1)
 # countryShp <- geodata::gadm(country, level = 2, path = ".")
 # provinces <- unique(countryShp$NAME_1)
-varietyids <- unique(template_df$INGENO)
+# varietyids <- unique(template_df$INGENO)
 
 # 1.f. Other inputs
 # month-day placeholders; real planting dates come from rs_schedule_df below

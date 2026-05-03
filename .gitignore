@@ -13,6 +13,8 @@ transform/
 *.RDS
 *.log
 *.csv
+*.png
+*.parquet
 
 # User-specific files
 .Ruserdata

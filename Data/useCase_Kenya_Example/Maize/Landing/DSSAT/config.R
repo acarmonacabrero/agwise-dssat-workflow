@@ -8,6 +8,7 @@ source(paste0(project_root, '/Scripts/generic/DSSAT/common_helpers.R'))
 country <- "Kenya"
 useCaseName <- "Example"
 Crop <- "Maize"
+varietyids <- c("999993")
 
 # 1.b. Paths
 project_root <- "/home/jovyan/rs-soil-comparison-africa"
@@ -55,7 +56,7 @@ template_df <- read.csv(paste0(path.to.temdata, temp_file))
 provinces <- unique(template_df$NAME_1)
 # countryShp <- geodata::gadm(country, level = 2, path = ".")
 # provinces <- unique(countryShp$NAME_1)
-varietyids <- unique(template_df$INGENO)
+# varietyids <- unique(template_df$INGENO)
 
 # 1.f. Other inputs
 # month-day placeholders; real planting dates come from rs_schedule_df below

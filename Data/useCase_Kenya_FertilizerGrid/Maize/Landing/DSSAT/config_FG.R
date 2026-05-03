@@ -6,15 +6,15 @@ source(paste0(project_root, '/Scripts/generic/DSSAT/common_helpers.R'))
 ################
 # 1.a. General Settings (edit as necessary)
 country <- "Kenya"
-useCaseName <- "FC"
+useCaseName <- "FertilizerGrid"
 Crop <- "Maize"
 varietyids <- c("999993")
 
 # 1.b. Paths
 filex_temp <- "KEAG8104.MZX"
 # Input file (.csv) for fertilizer, planting dates, varieties, ...
-temp_file <- "planting_date_rec_template.csv"
-# temp_file <- "Fertilizer_recommendation_template_V2.csv"
+# temp_file <- "planting_date_rec_template.csv"
+temp_file <- "RS_pdates_template.csv"
 geneticfiles <- "MZCER048"
 
 path.to.temdata <- paste0(
@@ -25,10 +25,10 @@ path.to.temdata <- paste0(
 Soil_source <- "ISRIC"
 # Soil_source <- "ISDA"
 AOI <- T
-Forecast <- T
+Forecast <- F
 fertilizer <- F  # All treatments have one fertilizer level defined in the DSSAT template
 fert_factorial <- F  # Fertilizer (from CSV template) and plant date (from RS code) as levels
-fert_grid_RS <- F  # Fertilizer (from NPK grid) and plant dates (from CSV template) as levels 
+fert_grid_RS <- T  # Fertilizer (from NPK grid) and plant dates (from CSV template) as levels 
 
 season <- 1
 pathIn_zone <- T
@@ -36,24 +36,17 @@ level2 <- NA
 index_soilwat <- 1
 ID <- "TLID"
 
-# Forecast settings
-use_manual_extent <- T
-extent_manual <- c(2, 33, -2, 37)
-init_month_user <- 10
-forecast_year <- 2025
-season_length_months <- 4
-
-# NPK_ranges <- list(N = seq(0, 200, 50),
-#                    P = seq(0, 50, 50),  # Insufficient soil P data provided.
-#                    K = seq(0, 0, 0),  # Model K module not implemented for Maize
-#                    n_split_applications = 2,  # Number of split applications (fertilizer ammount is divided by this number)
-#                    F.dap = c(0, 42),    # Number of days after planting the second application is applied
-#                    FMCD = "FE006",  # Will use the same for all fertilizers
-#                    FACD = "AP004",  # Will use the same for all fertilizers
-#                    FDEP = 5,  # Will use the same for all fertilizers
-#                    FAMC = -99,  # Will use the same for all fertilizers
-#                    FAMO = -99,  # Will use the same for all fertilizers
-#                    FOCD = -99)  # Will use the same for all fertilizers
+NPK_ranges <- list(N = seq(0, 200, 50),
+                   P = seq(0, 50, 50),  # Insufficient soil P data provided.
+                   K = seq(0, 0, 0),  # Model K module not implemented for Maize
+                   n_split_applications = 2,  # Number of split applications (fertilizer ammount is divided by this number)
+                   F.dap = c(0, 42),    # Number of days after planting the second application is applied
+                   FMCD = "FE006",  # Will use the same for all fertilizers
+                   FACD = "AP004",  # Will use the same for all fertilizers
+                   FDEP = 5,  # Will use the same for all fertilizers
+                   FAMC = -99,  # Will use the same for all fertilizers
+                   FAMO = -99,  # Will use the same for all fertilizers
+                   FOCD = -99)  # Will use the same for all fertilizers
 
 
 # TODO: make below initialization into a function in the mother script

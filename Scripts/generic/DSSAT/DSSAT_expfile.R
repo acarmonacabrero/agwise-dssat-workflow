@@ -50,11 +50,6 @@ create_filex <- function(i, path.to.temdata, filex_temp, path.to.extdata, coords
                          wsta_prefix = "WHTE", template_df = NULL, 
                          plant_dates = NULL) {
   
-  if(!is.null(NPK_ranges)) {
-    message("NPK ranges workflow not yet implemented but functions are ready: create_grid_factorial_design().")
-    stop()
-  }
-  
   if (is.null(plant_dates) && !is.null(coords)) {
     plant_dates <- coords$planting_dates[[i]]
   }

@@ -795,7 +795,9 @@ get_ISDA_soilRDS <- function(
 ### Download and bias-correct forecast data
 get_bc_forecast_data <- function(
     project_root, country, useCaseName, Crop, zone, country_code,
-    init_month_user, season_length_months, forecast_year
+    init_month_user, season_length_months, forecast_year,
+    use_manual_extent = use_manual_extent, extent_manual = extent_manual,
+    py_path = "/home/jovyan/.conda-envs/agwise_fcst/bin/python"
     ) {
   
   # Build base directory dynamically
@@ -852,7 +854,7 @@ get_bc_forecast_data <- function(
     extent_manual = extent_manual,
     manual_domain_name = "User_Domain",
     base_dir = paste0(project_root, "/Data"),
-    py_path = "/home/jovyan/.conda-envs/agwise_fcst/bin/python",
+    py_path = py_path,
     variables_to_bc = c(
       "PRCP", # Seasonal rainfall totals and anomalies
       "TMAX", # Heat stress and extreme temperature risk
@@ -862,7 +864,40 @@ get_bc_forecast_data <- function(
     )
   )
   
+  # TODO: See how they look like
+  ### Create RDS files from NetCDF files 
+  
+  
+  ####### JUST ADDED BELOW #######
+  # Download prior month data
+  py_script <- file.path(main_script_dir, "download_prior_month2.py")
+  
+  message("Downloading prior month data for country: ", country_code)
+  
+  py_cmd <- sprintf(
+    "%s %s --project_root %s --country %s --useCaseName %s --country_code %s", 
+    shQuote(py_path), shQuote(py_script), shQuote(project_root), 
+    shQuote(country), shQuote(useCaseName), shQuote(country_code))
+  
+  # Execute command
+  status <- system(py_cmd, intern = TRUE)
+  
+  message("Python prior month downloader output:")
+  print(status)
+  
+  ####### JUST ADDED ABOVE #######
+  
   setwd(old_wd)
+  
+  # Merge and extract
+  extract_all_nc_to_df(
+    nc_folder = paste0(project_root, "/Data/", country_code, "/forecast/bias_corrected/"),
+    aoi_file = paste0(project_root, "/Data/useCase_", country, "_", useCaseName, "/", Crop, "/data_curation/", country, "/AOI_GPS.RDS"),
+    forecast_year = forecast_year,
+    init_month_user = init_month_user,
+    force_extract = F
+  )
+  
 }
 
 
@@ -923,66 +958,57 @@ prior_month_download <- function(
 extract_all_nc_to_df <- function(
     nc_folder, aoi_file, forecast_year, init_month_user, force_extract = F) {
   
-  
+  # TODO: First we need to download the prior month data
   # Construct the RDS file path
   rds_file <- paste0(nc_folder, "prior_month_", forecast_year, "_", init_month_user, ".RDS")
   
   # Check if RDS file exists and force_extract is FALSE
-  if(file.exists(rds_file) && !force_extract) {
+  if (file.exists(rds_file) && !force_extract) {
     message("Reading pre-existing data from RDS file: ", rds_file)
-    combined_df <- readRDS(rds_file)
-    return(combined_df)
+    return(readRDS(rds_file))
   }
   
   message("Extracting data from NetCDF files...")
   
   # Load AOI coordinates
   aoi <- readRDS(aoi_file)
-  if(!all(c("lat","lon") %in% names(aoi))) stop("AOI file must have 'lat' and 'lon' columns")
+  if(!all(c("lat", "lon") %in% names(aoi))) {
+    stop("AOI file must have 'lat' and 'lon' columns")
+  }
   
   # Find all NetCDF files in the folder
   pattern <- paste0("_", forecast_year, "_", init_month_user, "\\.nc$")
   nc_files <- list.files(nc_folder, pattern = "\\.nc$", full.names = TRUE)
-  if(length(nc_files) == 0) stop("No NetCDF files found in the folder")
+  if (length(nc_files) == 0) stop("No NetCDF files found in the folder")
   
-  # Initialize combined dataframe with AOI coordinates
-  combined_df <- aoi
-  rownames(combined_df) <- paste0(aoi$lat, "_", aoi$lon)
+  # Get AOI points
+  pts <- vect(aoi, geom = c("lon", "lat"), crs = "EPSG:4326")
   
   # Loop over each NetCDF file
   for(nc_file in nc_files) {
-    nc <- nc_open(nc_file)
+    r <- rast(nc_file)
     
-    # Assume only one variable per file
-    varname <- names(nc$var)[1]
+    varname <- get_varname_from_terra(r)
     
-    lats <- ncvar_get(nc, "lat")
-    lons <- ncvar_get(nc, "lon")
-    times <- ncvar_get(nc, "time")
+    dates <- time(r)
     
-    # Convert time to Date
-    time_units <- nc$var[[varname]]$dim[[3]]$units
-    origin <- as.Date(sub("days since ", "", time_units))
-    dates <- origin + times
+    vals <- extract(r, pts)[, -1, drop = FALSE]
     
-    # Extract data for each AOI point
-    for(i in seq_len(nrow(aoi))) {
-      lat_idx <- which.min(abs(lats - aoi$lat[i]))
-      lon_idx <- which.min(abs(lons - aoi$lon[i]))
-      
-      vals <- ncvar_get(nc, varname)[lon_idx, lat_idx, ]
-      colnames_i <- paste0(varname, "_", format(dates, "%d_%m_%Y"))
-      
-      combined_df[i, colnames_i] <- vals
-    }
+    colnames_i <- paste0(varname, "_", dates)
+    colnames_i <- gsub("-", "_", colnames_i)
     
-    nc_close(nc)
+    colnames(vals) <- colnames_i
+    
+    combined_df <- cbind(aoi, vals)
+    
+    # TODO: Check forecast data name
+    rds_file <- paste0(nc_folder, varname, "_", forecast_year, "_", init_month_user, ".RDS")
+    
+    saveRDS(combined_df, rds_file)
+    
+    message("Data saved to RDS file: ", rds_file)
   }
-  
-  saveRDS(combined_df, rds_file)
-  message("Data saved to RDS file: ", rds_file)
-  
-  return(combined_df)
+
 }
 
 
@@ -1099,4 +1125,28 @@ get_last_day_of_month <- function(month, year) {
   last_day <- seq(as.Date(sprintf("%04d-%02d-01", year, month)),
                   by = "month", length.out = 2)[2] - 1
   last_day
+}
+
+
+# Get varname from terra object
+get_varname_from_terra <- function(r) {
+  
+  txt <- capture.output(r)
+  
+  varline <- txt[grepl("^varname\\s*:", txt)]
+  
+  if (length(varline) == 0) {
+    message("Failed to retrieve variable name from SpatRaster object.")
+    return(NA_character_)
+  }
+  
+  varname <- sub("varname\\s*:\\s*", "", varline)
+  varname <- trimws(varname)
+  
+  if (nchar(varname) == 0) {
+    message("Failed to retrieve variable name from SpatRaster object.")
+    return(NA_character_)
+  }
+  
+  return(varname)
 }

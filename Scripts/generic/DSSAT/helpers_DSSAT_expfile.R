@@ -625,8 +625,6 @@ get_filex_fertilizersinorganic <- function(
     fert_list = NULL) {
   fi_df <- file_x$`FERTILIZERS (INORGANIC)`
   
-  # TODO: template_df seems to be wrong for this approach. Need to revisit with Siya or modify this
-  # TODO: Checks: 1) F from template_df?, F is incorrect currently, PDAT from template_df?
   # Path: fertilizer from template file
   if(!is.null(template_df$FAMN)) {
     fi_df <- template_df %>%
@@ -636,7 +634,6 @@ get_filex_fertilizersinorganic <- function(
     n_split_applications <- length(unique(fi_df$F.dap))
     
     # TODO: if plant_dates from template_df 
-    # TODO: NEED TO REVISIT THIS!! FDATE WRONG? F WRONG?
     # n_fi <- dim(fi_df)[1]
     fi_df <- fi_df[rep(1:nrow(fi_df), times = length(plant_dates)), ]
     row.names(fi_df) <- NULL
@@ -727,17 +724,20 @@ get_filex_treatments <- function(file_x, fert_list = NULL) {
     treatments_df$N <- 1:n_t
     treatments_df$MF <- 1:n_t
     n_pd <- max(pd_df$P)
-    fert_levels <- unique(gsub("\\s*\\d+(st|nd|rd|th) application", "", fi_df$FERNAME))
+    fert_levels <- unique(gsub("\\s*\\d+(st|nd|rd|th) app", "", fi_df$FERNAME))
     pd_levels <- paste0(1:n_pd, c("st","nd","rd","th")[1:n_pd], " pd")
-    
-    treat_names <- expand.grid(
-      fert = fert_levels,
-      pd   = pd_levels,
-      stringsAsFactors = FALSE
-    )
-    treat_names$TNAME <- paste(treat_names$fert, treat_names$pd)
-    
-    treatments_df$TNAME <- treat_names$TNAME
+    if (length(fert_levels) == max(treatments_df$N)) {
+      treatments_df$TNAME <- fert_levels
+    } else {
+      treat_names <- expand.grid(
+        fert = fert_levels,
+        pd  = pd_levels,
+        stringsAsFactors = FALSE
+      )
+      treat_names$TNAME <- paste(treat_names$fert, treat_names$pd)
+      treatments_df$TNAME <- treat_names$TNAME
+      
+    }
 
     # IC, MP, SM and MH are the same
     pd_index <- as.integer(sub(".*\\b(\\d+)(st|nd|rd|th) pd.*", "\\1",
@@ -787,7 +787,8 @@ check_layers_order <- function(ex_profile) {
 
 # Get range of treatments
 get_n_treatments <- function(
-    template_df, Forecast, fertilizer, fert_factorial, fert_grid_RS) {
+    template_df, Forecast, fertilizer, fert_factorial, fert_grid_RS,
+    NPK_ranges = NULL) {
   
   if (fert_factorial) {
     n_applications <- length(unique(template_df$F.dap))
@@ -799,8 +800,15 @@ get_n_treatments <- function(
     # Columns that define the RS planting date
     n_pd <- length(colnames(template_df)[grep("^q", colnames(template_df))]) + 1
     TRT <- 1:(n_fert * n_pd)
-  } else {
+  } else if (!is.null(NPK_ranges)) {
+    n_pd <- length(colnames(template_df)[grep("^q", colnames(template_df))]) + 1
+    NPK_ranges2 <- NPK_ranges
+    NPK_ranges2$F.dap <- NULL
+    TRT <- 1:(dim(expand_grid(NPK_ranges2))[1] * n_pd)
+  }
+    else {
     message("get_n_treatments() not implemented for your type of experiment")
+    stop()
   }
   
   return(TRT)
