@@ -54,11 +54,12 @@ __pychache__/
 # R Environment Variables
 .Renviron
 
-# pkgdown site
-docs/
-
 # translation temp files
 po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# Exceptions
+!docs/figs/AgWISE_folder_architecture.png
+

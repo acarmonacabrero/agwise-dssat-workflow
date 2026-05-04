@@ -1,10 +1,10 @@
-# -------------------------------------------------- #
-### CROP MODELLING FERTILIZER GRID & RS PDs SCRIPT ###
-# --------------------------------------=====------- #
+# --------------------------------------------- #
+### CROP MODELLING FERTILIZER & RS PDs SCRIPT ###
+# --------------------------------------------- #
 project_root <- "/home/jovyan/Alvaro_repos/agwise-dssat-workflow"
 
 ### Load user-defined inputs AND load helper functions:
-source(paste0(project_root, '/Data/useCase_Kenya_FertilizerRec/Maize/Landing/DSSAT/config_FR.R'))
+source(paste0(project_root, '/Data/useCase_Country_Template/Maize/Landing/DSSAT/config.R'))
 
 
 #########################################################################
@@ -58,7 +58,7 @@ for (varietyid in varietyids) {
         varietyid = varietyid,
         zone = prov, level2 = level2, fertilizer = fertilizer,
         fert_factorial = fert_factorial, template_df = template_df,
-        fert_grid_RS = fert_grid_RS, NPK_ranges = NULL,
+        fert_grid_RS = fert_grid_RS, NPK_ranges = NPK_ranges,
         geneticfiles = geneticfiles, index_soilwat = index_soilwat,
         pathIn_zone = pathIn_zone, Forecast = Forecast, create_RS_schedule = T,
         fc_month = NA, fc_year = NA
@@ -73,7 +73,8 @@ write_dssat_log(expfile_msg, file = "dssat.expfile.log")
 source(paste0(project_root, "/Scripts/generic/DSSAT/dssat_exec.R"))
 
 TRT <- get_n_treatments(
-  template_df, Forecast, fertilizer, fert_factorial, fert_grid_RS)
+  template_df, Forecast, fertilizer, fert_factorial, fert_grid_RS, 
+  NPK_ranges = if (exists("NPK_ranges")) NPK_ranges else NULL)
 
 for (varietyid in varietyids) {
   for (prov in provinces) {
@@ -88,7 +89,7 @@ write_dssat_log(exemodel_msg, file = "dssat.exec.log")
 
 
 ###################################
-### Step 3: Merge DSSAT results ###
+### Step 4: Merge DSSAT results ###
 ###################################
 source(paste0(project_root, "/Scripts/generic/DSSAT/merge_DSSAT_output.R"))
 
