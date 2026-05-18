@@ -68,13 +68,14 @@ import rioxarray as rioxr
 
 # Suppress warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+logging.basicConfig(level=logging.INFO)
 logging.getLogger("cdsapi").setLevel(logging.ERROR)
-
 
 class AgWise_Download:
     def __init__(self):
         """Initialize the AgWise_Download class."""
         pass
+
 
     def ModelsName(
         self,
@@ -165,6 +166,7 @@ class AgWise_Download:
         year_end,
         area,
         force_download=False,
+        months_by_year=None,
     ):
         """
         Download daily agro-meteorological indicators for specified variables and years.
@@ -176,12 +178,13 @@ class AgWise_Download:
             year_end (int): End year for the data to download.
             area (list): Bounding box as [North, West, South, East] for clipping.
             force_download (bool): If True, forces download even if file exists.
+            months_by_year (dict): Mapping of years to lists of months to download.
         """
         dir_to_save = Path(dir_to_save)
         os.makedirs(dir_to_save, exist_ok=True)
         days = [f"{day:02}" for day in range(1, 32)]
-        months = [f"{month:02}" for month in range(1, 13)]
-        version = "1_1"
+        default_months = [f"{month:02}" for month in range(1, 13)]
+        version = "2_0"
     
         # Updated variable mapping with statistic
         variable_mapping = {
@@ -191,7 +194,7 @@ class AgWise_Download:
             "AGRO.TMIN": ("2m_temperature", "24_hour_minimum", "Temperature_Air_2m_Min_24h"),
             "AGRO.SRAD": ("solar_radiation_flux", None, "Solar_Radiation_Flux"),
         }
-    
+        
         for var in variables:
             if var not in variable_mapping:
                 print(f"Unknown variable: {var}. Skipping.")
@@ -208,8 +211,13 @@ class AgWise_Download:
             else:
                 combined_datasets = []
                 for year in range(year_start, year_end + 1):
+                    if months_by_year is None:
+                        months = default_months
+                    else:
+                        months = months_by_year.get(year, default_months)
                     zip_file_path = dir_to_save / f"Daily_{var.split('.')[1]}_{year}.zip"
                 
+                    
                     dataset = "sis-agrometeorological-indicators"
                     request = {
                         "variable": cds_variable,
@@ -227,9 +235,9 @@ class AgWise_Download:
     
                     try:
                         client = cdsapi.Client()
-                        print(f"Downloading {cds_variable} ({statistic}) data for {year}...")
+                        logging.info(f"Downloading {cds_variable} ({statistic}) data for {year}...")
                         client.retrieve(dataset, request).download(str(zip_file_path))
-                        print(f"Downloaded: {zip_file_path}")
+                        logging.info(f"Downloaded: {zip_file_path}")
                     except Exception as e:
                         print(f"Failed to download {cds_variable} ({statistic}) data for {year}: {e}")
                         continue
@@ -457,6 +465,10 @@ class AgWise_Download:
                 ds = ds.drop_vars(['forecast_reference_time', 'forecast_period'])
                 ds = ds.rename({"valid_time":"time"})
                 ds = ds.rename_vars({nc_var: v})
+
+                # Ensure proper time ordering
+                ds['time'] = ds['time'].to_index()
+                ds['time'] = ds['time'] - np.timedelta64(1, 'D')
     
                 # If there's an ensemble dimension, apply ensemble mean/median if requested
                 if ensemble_mean in ["mean", "median"] and "number" in ds.dims:
@@ -468,23 +480,39 @@ class AgWise_Download:
 
                 if v in ["TMIN","TEMP","TMAX","SST"]:
                     ds = ds - 273.15
-                if v in ["SRAD"]:
-                    ds = ds / 1000000  # Convert from J m-2 day-1 to MJ m−2 day−1
-                if v =="PRCP":
-                    ds['time'] = ds['time'].to_index()
-                    years = ds['time'].dt.year
-                    tampon = []
-                    for year in np.unique(years):
-                        
-                        # Select the data for the specific year
-                        yearly_ds = ds.sel(time=ds['time'].dt.year == year)
-                        
-                        # Calculate differences for the year
-                        differences = [yearly_ds.isel(time=i) - yearly_ds.isel(time=i-1) for i in range(1, len(yearly_ds['time']))]
-                        differences = xr.concat(differences, dim="time")
-                        differences['time'] = yearly_ds['time'].isel(time=slice(1,None))
-                        tampon.append(differences)
-                    ds = xr.concat(tampon, dim="time")*1000
+                    ds[v].attrs['units'] = '°C'
+ 
+                if v in ["PRCP", "SRAD"]:
+                    # Compute differences (deaccumulation)
+                    deacc = ds.diff(dim="time")
+
+                    # Align with original time (drop first timestep in diff output)
+                    deacc = deacc.assign_coords(time=ds.time.isel(time=slice(1, None)))
+
+                    # Current values aligned to diff output
+                    current = ds.isel(time=slice(1, None))
+
+                    # Fix accumulation resets (negative jumps)
+                    deacc = xr.where(
+                        deacc < 0,
+                        current,
+                        deacc
+                    )
+
+                    # Add first timestep back
+                    deacc = xr.concat([ds.isel(time=0), deacc], dim="time")
+                    deacc = deacc.assign_coords(time=ds.time)
+
+                    ds = deacc
+
+                    # Unit conversions
+                    if v == "SRAD":
+                        ds = ds / 1_000_000  # J m-2 day-1 → MJ m-2 day-1
+                        ds[v].attrs['units'] = 'MJ m-2 day-1'
+
+                    elif v == "PRCP":
+                        ds = ds * 1000  # m → mm
+                        ds[v].attrs['units'] = 'mm'
 
                     ##########################################################
                     # Include after the processing of SLP, SRAD, DLWR,
@@ -619,6 +647,4 @@ def plot_map(extent, title="Map"): # [west, east, south, north]
     # Show plot
     plt.tight_layout()
     plt.show()
-
-
 

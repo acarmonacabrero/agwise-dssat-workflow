@@ -56,7 +56,9 @@ def _season_from_filename(p: Path) -> Optional[str]:
     return None
 
 
-def get_country_configs(data_dir: str, countries: Optional[List[str]] = None, season: Optional[str] = None,pick: str = "latest",) -> Dict[str, Dict[str, Any]]:
+def get_country_configs(data_dir: str, countries: Optional[List[str]] = None,
+                        season: Optional[str] = None, 
+                        pick: str = "latest",) -> Dict[str, Dict[str, Any]]:
     """
     Auto-discover and load AgWISE country configuration JSON files.
 
@@ -163,6 +165,7 @@ def _validate_cfg(cc: str, cfg: Dict[str, Any]) -> None:
         "forecast_year",
         "init_month",
         "init_day",
+        "season_length_months",
         "center_variable",
     ]
     for k in required:
@@ -234,6 +237,10 @@ def run_country_pipeline(country_code: str, nb_cores: int = 10):
 
     cfg = COUNTRY_CONFIGS[country_code]
 
+    forecast_year = cfg["forecast_year"]
+    init_month = cfg["init_month"]
+    season_length_months = cfg["season_length_months"]
+
     # -----------------------------------------------------------------
     # 2.1 Setup directory structure per country
     # -----------------------------------------------------------------
@@ -284,14 +291,33 @@ def run_country_pipeline(country_code: str, nb_cores: int = 10):
         force_download=force_download,
     )
 
-    current_year = datetime.datetime.now().year
+    # Get forecast dates (yyyy, mm) + 1 month of observational data for DSSAT initialization
+    forecast_dates = [(forecast_year + ((init_month - 2 + i) // 12),
+                       ((init_month - 2 + i) % 12) + 1)
+                       for i in range(season_length_months + 1)]
+    years_needed = sorted(set(year for year, month in forecast_dates))
+
+    months_by_year = {}
+
+    for year, month in forecast_dates:
+
+        if year not in months_by_year:
+            months_by_year[year] = []
+
+        month_str = f"{month:02}"
+
+        if month_str not in months_by_year[year]:
+            months_by_year[year].append(month_str)
+
+    # Attempto to download one month of data for each year in the forecast period + 1 month for DSSAT initialization
     downloader.AgWise_Download_AgroIndicators_daily(
         dir_to_save=dir_to_save_obs,
         variables=variables_obs,
-        year_start=current_year,
-        year_end=current_year,
+        year_start=min(years_needed),
+        year_end=max(years_needed),
         area=extent_obs,
         force_download=force_download,
+        months_by_year=months_by_year,
     )
 
     # -----------------------------------------------------------------
@@ -309,8 +335,8 @@ def run_country_pipeline(country_code: str, nb_cores: int = 10):
     leadtime_hour = [str(i) for i in range(24, 5161, 24)]  # 24h to 5160h
 
     # NOTE: your script had fixed hindcast years
-    year_start_model = 1994
-    year_end_model = 2016
+    year_start_hindcast = cfg["year_hndS"]
+    year_end_hindcast = cfg["year_hndE"]
 
     extent_model = cfg["extent_model"]  # [N, W, S, E] for CDS
 
@@ -323,8 +349,8 @@ def run_country_pipeline(country_code: str, nb_cores: int = 10):
         month_of_initialization=month_of_initialization,
         day_of_initialization=day_of_initialization,
         leadtime_hour=leadtime_hour,
-        year_start_hindcast=year_start_model,
-        year_end_hindcast=year_end_model,
+        year_start_hindcast=year_start_hindcast,
+        year_end_hindcast=year_end_hindcast,
         area=extent_model,
         year_forecast=None,
         ensemble_mean=ensemble_mean,

@@ -81,21 +81,25 @@
 
 ###############################################################
 options(warn = -1)
-source("00_config_function.R") 
+source("00_config_function.R")
 
 ###############################################################
 
-  
+
 run_agwise_seasonal_forecast_BC <- function(
     country_code = "KEN",
-    init_month_user = 10, 
+    init_month_user = 10,
     season_length_months = 3,
-    forecast_year = forecast_year,
-    use_manual_extent = FALSE, extent_manual = c(16, 34, 8, 40),
+    forecast_year = forecast_year, 
+    year_start_obs = year_start_obs,
+    year_end_obs = year_end_obs,
+    year_hndS = year_hndS,
+    year_hndE = year_hndE,
+    use_manual_extent = FALSE, extent_manual = c(2, 33, -2, 37),
     manual_domain_name = "User_Domain",
-    base_dir="/home/jovyan/agwise-planting-date-and-cultivar/Data",
-    main_script_dir = "/home/jovyan/agwise-planting-date-and-cultivar/Scripts/generic/ClimateForecast_BC",
-    py_path = "/opt/conda/bin/python",
+    base_dir = "/Users/alvaro/agwise-planting-date-and-cultivar/Data",
+    main_script_dir = "/Users/alvaro/agwise-planting-date-and-cultivar/Scripts/generic/ClimateForecast_BC",
+    py_path = "/Users/alvaro/agwise-dssat-workflow/Scripts/generic/ClimateForecast_BC/agwise_env/bin/python",
     py_script = file.path(main_script_dir, "02_run_agwise_multi_country.py"),
     variables_to_bc = c("PRCP", "TMAX", "TMIN", "TEMP", "SRAD"),
     n_cores = max(1, parallel::detectCores() - 1)
@@ -107,17 +111,41 @@ run_agwise_seasonal_forecast_BC <- function(
     # 1 Build country configration files for both forecast and bias correction
     ###############################################################
     
-    build_country_config(country_code = country_code, base_dir = base_dir, 
+    build_country_config(country_code = country_code, base_dir = base_dir,
                          use_manual_extent = use_manual_extent, extent_manual = extent_manual,
                          manual_domain_name = "User_Domain",
                          init_month_user = init_month_user, season_length_months = season_length_months,
-                         forecast_year = forecast_year)
+                         forecast_year = forecast_year, year_start_obs = year_start_obs,
+                         year_end_obs = year_end_obs, year_hndS = year_hndS, year_hndE = year_hndE)
     
     
     config_json_path <- file.path(base_dir, country_code,paste0(country_code,"_config_agwise.json"))
     aoi_config <- load_country_config_from_json(config_json_path)
-    seasons <- aoi_config$init_month + seq_len((aoi_config$season_length_months)) - 1
+    seasons <- ((aoi_config$init_month - 1 +
+             seq_len(aoi_config$season_length_months) - 1) %% 12) + 1
 
+    #############################################################
+    # 1.1 Ensure GADM administrative boundaries file exists
+    #############################################################
+    gadm_dir  <- file.path(aoi_config$dir_raw_admin, "gadm")
+    gadm_file <- file.path(gadm_dir, paste0("gadm41_", country_code, "_0_pk.gpkg"))
+    
+    if (!file.exists(gadm_file)) {
+      message("GADM file not found. Generating: ", gadm_file)
+      dir.create(gadm_dir, showWarnings = FALSE, recursive = TRUE)
+      
+      tryCatch({
+        aoi_gadm <- geodata::gadm(country = country_code, level = 0, path = gadm_dir)
+        terra::writeVector(aoi_gadm, gadm_file, filetype = "GPKG", overwrite = TRUE)
+        message("GADM file saved to: ", gadm_file)
+      }, error = function(e) {
+        message("Warning: Failed to generate GADM file. Error: ", e$message)
+        message("The workflow will continue, but country masking may fail.")
+      })
+    } else {
+      message("GADM file found: ", gadm_file)
+    }
+    
     
     t_all <- Sys.time()
     
@@ -127,7 +155,9 @@ run_agwise_seasonal_forecast_BC <- function(
     ###############################################################
     message("Running AgWise Python downloader for country: ", country_code)
     
-    py_cmd    <- sprintf("%s %s --data-dir %s --countries %s", shQuote(py_path), shQuote(py_script),shQuote(base_dir), country_code)
+    py_cmd <- sprintf(
+      "%s %s --data-dir %s --countries %s", shQuote(py_path),
+      shQuote(py_script), shQuote(base_dir), country_code)
     
     # Execute command
     status <- system(py_cmd, intern = TRUE)
@@ -139,11 +169,11 @@ run_agwise_seasonal_forecast_BC <- function(
     message("Proceeding to bias correction.........")
     
     #############################################################
-    ###3 Bias Correction based on Observation, hindicast and forecast data
+    ###3 Bias Correction based on Observation, hindcast and forecast data
     #############################################################
     
     bc_var_cfg <- list(
-      PRCP = list(obs_file_pattern="Daily_PRCP_%d_%d.nc", obs_var="precip",
+      PRCP = list(obs_file_pattern="Daily_PRCP_%d_%d.nc", obs_var="PRCP",
                   model_var="PRCP", is_precip=TRUE, method="ptr",
                   scaling.type="multiplicative", units="mm/day"),
       TMAX = list(obs_file_pattern="Daily_TMAX_%d_%d.nc", obs_var="TMAX",
@@ -156,7 +186,7 @@ run_agwise_seasonal_forecast_BC <- function(
                   model_var="TEMP", is_precip=FALSE, method="qdm",
                   scaling.type="additive", units="degC"),
       SRAD = list(obs_file_pattern="Daily_SRAD_%d_%d.nc", obs_var="SRAD",
-                  model_var="SRAD", is_precip=FALSE, method="ptr",
+                  model_var="SRAD", is_precip=FALSE, method="qdm",
                   scaling.type="multiplicative", units="MJ/m2/day"))
     
     ## Variables to process
@@ -220,7 +250,6 @@ run_agwise_seasonal_forecast_BC <- function(
       # 4.4 Loop over models that have both hindcast & forecast
       ###########################################################
       for (m in model_ids) {
-        #m=model_ids
         message("---------------------------------------------------")
         message("Processing ", var_code, " for model ID: ", m)
         
@@ -292,7 +321,7 @@ run_agwise_seasonal_forecast_BC <- function(
           #folds = list(1990:1996, 1997:2002, 2011:2016),
           #consecutive   = cfg$is_precip,
           scaling.type  = cfg$scaling.type, parallel = TRUE,
-          max.ncores = n_cores )
+          max.ncores = n_cores)
         
         mask <- gridArithmetics(nc_obs, 0, operator = "*")
         ## Bias-corrected forecast regridded to obs grid
@@ -323,16 +352,30 @@ run_agwise_seasonal_forecast_BC <- function(
                                      paste0("gadm41_",country_code, "_0_pk.rds")))  
         nc_bc_rast_masked <- terra::mask(nc_bc_rast, aoi)
         
-             
-        
-        terra::writeCDF(x = nc_bc_rast_masked, filename = outFile,
-                        varname = as.character(nc_fcst_bc_interp$Variable$varName),
-                        unit    = as.character(attr(nc_fcst_bc_interp$Variable, "units")),
-                        atts     = globalAttributeList, 
-                        prec     = "double", missval  = -999, compression = 9, overwrite = TRUE)
-        
-        message("NetCDF write time: ", round(difftime(Sys.time(), t_nc, "secs"), 1), " s")
-        
+        tryCatch({
+
+          terra::writeCDF(
+              x = nc_bc_rast_masked,
+              filename = outFile,
+              varname = as.character(nc_fcst_bc_interp$Variable$varName),
+              unit = as.character(attr(nc_fcst_bc_interp$Variable, "units")),
+              atts = globalAttributeList,
+              prec = "double",
+              missval = -999,
+              compression = 9,
+              overwrite = TRUE
+          )
+
+          message("SUCCESSFULLY WROTE:")
+          message(outFile)
+          message("Exists? ", file.exists(outFile))
+
+      }, error = function(e) {
+
+          message("writeCDF FAILED")
+          message(e$message)
+
+      })
         
         # loadeR.2nc::grid2nc( data = nc_fcst_bc, , 
         #                      NetCDFOutFile = outFile, prec = "double", missval = -999, shuffle = TRUE, compression = 0,

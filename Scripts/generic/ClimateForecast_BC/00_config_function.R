@@ -124,14 +124,15 @@ options(java.parameters = "-Xmx64g")
 options(warn = -1)
 pkgs <- list("rJava","loadeR.java","geodata","jsonlite","ncdf4","loadeR","transformeR",
           "downscaleR","loadeR.2nc","visualizeR","parallel","terra","gridExtra","grid", "RColorBrewer")
+lapply(pkgs, require, character.only = TRUE)
 #load_packages_install(pkgs)
-lapply(pkgs, require, character.only = TRUE) 
+
 
 ###############################################################
 
 build_country_config <- function( country_code, base_dir, use_manual_extent = FALSE, extent_manual = extent_manual, 
 				manual_domain_name = "Manual_Domain", init_month_user = NA_integer_, init_day_user = NA_integer_, 
-				season_length_months = 4, forecast_year = forecast_year) {
+				season_length_months = 4, forecast_year = forecast_year, year_start_obs, year_end_obs, year_hndS, year_hndE) {
 					
 					
 
@@ -189,12 +190,6 @@ build_country_config <- function( country_code, base_dir, use_manual_extent = FA
   # -----------------------------
   # 4) COUNTRY PARAMETERS (UNCHANGED)
   # -----------------------------
-  year_start_obs <- 1994
-  year_end_obs   <- 2024
-  
-  year_hndS   <- 1994
-  year_hndE   <- 2016
-
   center_variable <- c(
     "ECMWF_51.PRCP",
     "ECMWF_51.TMAX",
